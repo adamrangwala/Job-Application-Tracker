@@ -5,6 +5,8 @@ An automated Google Apps Script tool that helps you track and manage your job ap
 [Job Application Tracker Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)
 
 
+![Tracker Demo](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMHExMjQ1Mmp1ejcxazdidzBzdm0xbG1tZmx2amttNmhkZjE4OTNiYiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/haJ5ii4ALvt2zIOdKB/giphy.gif)
+
 <p align="center">
   <img src="[demo.gif](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMHExMjQ1Mmp1ejcxazdidzBzdm0xbG1tZmx2amttNmhkZjE4OTNiYiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/haJ5ii4ALvt2zIOdKB/giphy.gif)" alt="animated" />
 </p>
