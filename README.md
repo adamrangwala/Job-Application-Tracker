@@ -7,10 +7,6 @@ An automated Google Apps Script tool that helps you track and manage your job ap
 
 ![Tracker Demo](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMHExMjQ1Mmp1ejcxazdidzBzdm0xbG1tZmx2amttNmhkZjE4OTNiYiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/haJ5ii4ALvt2zIOdKB/giphy.gif)
 
-<p align="center">
-  <img src="[demo.gif](https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExMHExMjQ1Mmp1ejcxazdidzBzdm0xbG1tZmx2amttNmhkZjE4OTNiYiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/haJ5ii4ALvt2zIOdKB/giphy.gif)" alt="animated" />
-</p>
-
 ## Overview
 
 The Job Application Tracker is a powerful Google Apps Script application that automatically scans your Gmail inbox for job application-related emails and organizes them into a structured Google Sheets dashboard. It detects different application statuses, extracts company and job title information, automatically generates draft replies to rejections and provides insightful visualizations of your job search progress.
