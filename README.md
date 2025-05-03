@@ -2,7 +2,7 @@
 
 An automated Google Apps Script tool that helps you track and manage your job applications by scanning your Gmail inbox.
 
-![Job Application Tracker Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)
+[Job Application Tracker Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)
 
 ## Overview
 
@@ -27,7 +27,7 @@ The Job Application Tracker is a powerful Google Apps Script application that au
 
 ### Installation
 
-**Option 1:** ![Use the Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)and follow the instructions
+**Option 1:** [Use the Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)and follow the instructions
 
 **Option 2:** Set up the the Extension yourself using the JS files in this repository 
 1. Create a new Google Sheet
@@ -121,7 +121,7 @@ If you're having trouble with permissions:
 ## Contributing / Feeback
 
 Contributions to improve the Job Application Tracker are welcome! Please feel free to submit a pull request or open an issue to suggest improvements.
-Feedback: Please ![Use the Template](https://docs.google.com/forms/d/e/1FAIpQLSfz4PxUTe7wPaL4At_qpSuxAMa3rP4GUGMmTYASDKkST71XtA/viewform?usp=dialog) to provide quick 2 minutes of feedback for me to help improve the app.
+Feedback: Please [use the feedback form](https://docs.google.com/forms/d/e/1FAIpQLSfz4PxUTe7wPaL4At_qpSuxAMa3rP4GUGMmTYASDKkST71XtA/viewform?usp=dialog) to provide quick 2 minutes of feedback for me to help improve the app.
 
 ## License
 
