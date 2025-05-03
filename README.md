@@ -2,7 +2,7 @@
 
 An automated Google Apps Script tool that helps you track and manage your job applications by scanning your Gmail inbox.
 
-![Job Application Tracker Dashboard](https://via.placeholder.com/800x400?text=Job+Application+Tracker+Dashboard)
+![Job Application Tracker Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)
 
 ## Overview
 
@@ -27,6 +27,9 @@ The Job Application Tracker is a powerful Google Apps Script application that au
 
 ### Installation
 
+**Option 1:** ![Use the Template](https://docs.google.com/spreadsheets/d/1Ua5ceM5PYgIgHTctTdV5-S3uwWB0pzG1_yHwgBhyfVA/edit?usp=sharing)and follow the instructions
+
+**Option 2:** Set up the the Extension yourself using the JS files in this repository 
 1. Create a new Google Sheet
 2. Name the first sheet "Instructions" and the second sheet "Applications"
 3. Click on "Extensions" > "Apps Script" to open the script editor
@@ -48,6 +51,16 @@ The Job Application Tracker is a powerful Google Apps Script application that au
 4. The script will automatically set up your spreadsheet with the correct headers and formatting
 5. To enable daily automatic scanning, click "Job Tracker" > "Set up daily scanning"
 
+## Advanced Features
+
+### Rejection Follow-up Drafts
+
+The tool can automatically create draft emails for rejected applications to help you maintain professional relationships. To use this feature:
+
+1. Click "Job Tracker" > "Create Rejection Follow-up Drafts"
+2. Review the created drafts in your Gmail drafts folder
+3. Personalize and send as appropriate
+
 ## How It Works
 
 1. **Email Detection**: The script uses a sophisticated search query to find job-related emails in your Gmail
@@ -68,16 +81,6 @@ The tracker categorizes applications into the following statuses:
 - **Interview Request**: Invitations for interviews
 - **Offer Received**: Job offers
 - **Rejected**: Application rejections
-
-## Advanced Features
-
-### Rejection Follow-up Drafts
-
-The tool can automatically create draft emails for rejected applications to help you maintain professional relationships. To use this feature:
-
-1. Click "Job Tracker" > "Create Rejection Follow-up Drafts"
-2. Review the created drafts in your Gmail drafts folder
-3. Personalize and send as appropriate
 
 ### Application Insights
 
@@ -115,9 +118,10 @@ If you're having trouble with permissions:
 2. Remove the script's access
 3. Run the script again and reauthorize
 
-## Contributing
+## Contributing / Feeback
 
 Contributions to improve the Job Application Tracker are welcome! Please feel free to submit a pull request or open an issue to suggest improvements.
+Feedback: Please ![Use the Template](https://docs.google.com/forms/d/e/1FAIpQLSfz4PxUTe7wPaL4At_qpSuxAMa3rP4GUGMmTYASDKkST71XtA/viewform?usp=dialog) to provide quick 2 minutes of feedback for me to help improve the app.
 
 ## License
 
