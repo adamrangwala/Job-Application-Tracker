@@ -23,7 +23,7 @@ The Job Application Tracker is a powerful Google Apps Script application that au
 ### Prerequisites
 
 - A Google account
-- Basic familiarity with Google Sheets and Google Apps Script
+- A Gmail account used for submitting job applications
 
 ### Installation
 
