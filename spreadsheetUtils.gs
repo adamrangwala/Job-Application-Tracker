@@ -1,828 +1,367 @@
 /**
  * spreadsheetUtils.gs
- * 
- * This file contains core utility functions for spreadsheet operations
- * used in the Job Application Tracker, including automatic formatting
- * for the main data table.
+ *
+ * Workbook schema, non-destructive setup/migration, and a small table helper that
+ * reads a tab once and writes back only new rows and changed cells.
+ * Columns are always located by header name, never by position.
  */
 
-// =============================================================
-// Spreadsheet Operation Utilities
-// =============================================================
-const SpreadsheetUtils = {
-  /**
-   * Sets up a new spreadsheet with appropriate headers and formatting
-   * @param {Sheet} sheet - Google Sheets sheet object
-   */
-  setupSheet: function(sheet) {
-    // Set up headers - removed Email Thread ID, but keep it in processing logic
-    const headers = ["Job Title", "Company", "Date Submitted", "Date Updated", "Status", "Raw Body"];
-    
-    // Get the range for the headers (first row, columns A through F)
-    const headerRange = sheet.getRange(1, 1, 1, headers.length);
-
-    // Set the values for the headers
-    headerRange.setValues([headers]);
-
-    // Format the headers with enhanced styling
-    this.formatHeader(sheet);
-
-    // Freeze the header row
-    sheet.setFrozenRows(1);
-
-    // Auto-resize columns
-    sheet.autoResizeColumns(1, headers.length);
-    
-    return sheet;
-  },
-  
-  /**
-   * Formats a date cell as a hyperlink to the email thread
-   * @param {Sheet} sheet - Google Sheets sheet object
-   * @param {number} row - Row number for the cell
-   * @param {number} column - Column number for the cell
-   * @param {string} threadLink - URL to the email thread
-   * @param {Date} date - Date to display
-   */
-  formatDateAsLink: function(sheet, row, column, threadLink, date) {
-    const dateCell = sheet.getRange(row, column);
-    const formattedDate = Utilities.formatDate(date, Session.getScriptTimeZone(), "MM/dd/yyyy");
-    dateCell.setFormula(`=HYPERLINK("${threadLink}", "${formattedDate}")`);
-  },
-  
-  /**
-  * Applies color coding to status cells and highlights recently updated applications
-  * @param {Sheet} sheet - Google Sheets sheet object
-  * @param {number} statusColumn - Column index for status values
-  * @param {number} startRow - Starting row for formatting
-  * @param {number} endRow - Ending row for formatting
-  */
-  applyStatusFormatting: function(sheet, statusColumn, startRow, endRow) {
-    // Get headers to find the Date Updated column
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const dateUpdatedIndex = headers.indexOf("Date Updated");
-    
-    // If Date Updated column is found, use it; otherwise, assume it's before Status
-    const dateUpdatedColumn = dateUpdatedIndex !== -1 ? 
-      dateUpdatedIndex + 1 : statusColumn - 1;
-    
-    // Get all status values and updated dates
-    const statusRange = sheet.getRange(startRow, statusColumn, endRow - startRow + 1, 1);
-    const statusValues = statusRange.getValues();
-    
-    const dateUpdatedRange = sheet.getRange(startRow, dateUpdatedColumn, endRow - startRow + 1, 1);
-    const dateUpdatedValues = dateUpdatedRange.getValues();
-    
-    // Calculate cutoff for recent updates (7 days ago)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    // Apply formatting to each cell individually based on value
-    for (let i = 0; i < statusValues.length; i++) {
-      const status = statusValues[i][0];
-      const updatedDate = dateUpdatedValues[i][0];
-      const cell = sheet.getRange(startRow + i, statusColumn);
-      
-      // Center the status text
-      cell.setHorizontalAlignment('center');
-      cell.setVerticalAlignment('middle');
-      
-      let isRecentUpdate = false;
-      if (updatedDate instanceof Date && updatedDate > sevenDaysAgo) {
-        isRecentUpdate = true;
-      }
-      
-      // Define colors based on status
-      let bgColor, textColor, fontWeight;
-      
-      switch(status) {
-        case "Applied":
-          bgColor = isRecentUpdate ? "#bbdefb" : "#e3f2fd"; // Darker blue for recent
-          textColor = "#0d47a1"; // Dark blue
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        case "Assessment":
-          bgColor = isRecentUpdate ? "#fff59d" : "#fff9c4"; // Darker yellow for recent
-          textColor = "#f57f17"; // Dark orange
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        case "Interview Request":
-          bgColor = isRecentUpdate ? "#a5d6a7" : "#c8e6c9"; // Darker green for recent
-          textColor = "#1b5e20"; // Dark green
-          fontWeight = "bold";
-          break;
-        case "Offer Received":
-          bgColor = isRecentUpdate ? "#81c784" : "#a5d6a7"; // Darker green for recent
-          textColor = "#1b5e20"; // Dark green
-          fontWeight = "bold";
-          break;
-        case "Rejected":
-          bgColor = isRecentUpdate ? "#ef9a9a" : "#ffcdd2"; // Darker red for recent
-          textColor = "#b71c1c"; // Dark red
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        case "Status Update":
-          bgColor = isRecentUpdate ? "#e0e0e0" : "#f5f5f5"; // Darker gray for recent
-          textColor = "#424242"; // Dark gray
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        default:
-          bgColor = "#f5f5f5"; // Light gray
-          textColor = "#424242"; // Dark gray
-          fontWeight = "normal";
-      }
-      
-      // Apply the enhanced formatting
-      cell.setBackground(bgColor);
-      cell.setFontColor(textColor);
-      cell.setFontWeight(fontWeight);
-      
-      // Add a subtle border around status cells
-      cell.setBorder(true, true, true, true, null, null, '#bdbdbd', SpreadsheetApp.BorderStyle.SOLID);
-      
-      // Highlight the entire row for recent updates with a subtle border
-      if (isRecentUpdate) {
-        const rowRange = sheet.getRange(startRow + i, 1, 1, sheet.getLastColumn());
-        rowRange.setBorder(
-          true, true, true, true, // top, left, bottom, right
-          false, false,           // vertical, horizontal
-          "#9e9e9e",              // color
-          SpreadsheetApp.BorderStyle.DOTTED
-        );
-      }
-    }
-  },
-  
-  /**
-   * Creates a summary dashboard of application statuses
-   * This is the main entry point for the dashboard that delegates to other utilities
-   * @param {Sheet} sheet - Google Sheets sheet object
-   */
-  createSummaryDashboard: function(sheet) {
-    // Check if summary already exists, if so, clear and update
-    let summarySheet;
-    
-    try {
-      summarySheet = sheet.getParent().getSheetByName("Summary");
-      if (summarySheet) {
-        summarySheet.clear();
-      } else {
-        summarySheet = sheet.getParent().insertSheet("Summary");
-      }
-    } catch (e) {
-      Logger.log("Error creating summary sheet: " + e.toString());
-      return;
-    }
-    
-    // Create enhanced dashboard header
-    this.createDashboardHeader(summarySheet);
-    
-    // Get all status values from main sheet
-    const mainSheet = sheet;
-    const lastRow = mainSheet.getLastRow();
-    const statusColumnIndex = 5; // Status is column E (index 5)
-    
-    if (lastRow <= 1) {
-      summarySheet.getRange("A1").setValue("No applications found");
-      return;
-    }
-    
-    const statusRange = mainSheet.getRange(2, statusColumnIndex, lastRow - 1, 1);
-    const statusValues = statusRange.getValues();
-    
-    // Count different statuses
-    const counts = {
-      "Applied": 0,
-      "Assessment": 0,
-      "Interview Request": 0,
-      "Offer Received": 0,
-      "Rejected": 0,
-      "Status Update": 0,
-      "Total": 0
-    };
-    
-    for (const row of statusValues) {
-      const status = row[0];
-      if (status in counts) {
-        counts[status]++;
-      }
-      counts["Total"]++;
-    }
-    
-    // Create enhanced status summary table
-    let row = 3;
-    this.createStatusSummaryTable(summarySheet, row, counts);
-    
-    // Find where the status table ends
-    row = row + Object.keys(counts).length + 1; // +1 for header and total row
-    
-    // Add enhanced pie chart
-    if (counts["Total"] > 0) {
-      this.createStatusPieChart(summarySheet, 3, row, counts);
-    }
-    
-    // Add recent activity section
-    row += 14; // Leave space for the chart
-    this.createRecentActivitySection(summarySheet, mainSheet, row);
-    
-    // Add job title analysis visualizations
-    try {
-      // Find the last used row after recent activity
-      row = this.findLastRowInSheet(summarySheet) + 3;
-      
-      // Call the JobTitleVisualization function with the correct starting row
-      JobTitleVisualization.createJobTitleVisualizations(mainSheet, summarySheet, row);
-    } catch (e) {
-      Logger.log("Error creating job title visualizations: " + e.toString());
-      summarySheet.getRange(row + 2, 1).setValue("Error creating job title visualizations: " + e.toString());
-    }
-    
-    // Add application insights
-    try {
-      // Find the last used row after job title visualizations
-      row = this.findLastRowInSheet(summarySheet) + 3;
-      
-      // Call the ApplicationInsights function with the correct starting row
-      ApplicationInsights.createApplicationInsights(mainSheet, summarySheet, row);
-    } catch (e) {
-      Logger.log("Error creating application insights: " + e.toString());
-      summarySheet.getRange(row + 3, 1).setValue("Error creating application insights: " + e.toString());
-    }
-  },
-  
-  /**
-   * Helper function to find the last used row in a sheet
-   * @param {Sheet} sheet - The sheet to check
-   * @return {number} The last used row
-   */
-  findLastRowInSheet: function(sheet) {
-    const lastRow = sheet.getLastRow();
-    
-    // If there are no rows, return 1
-    if (lastRow === 0) return 1;
-    
-    return lastRow;
-  },
-  
-  /**
-   * Auto-formats the main spreadsheet with enhanced styling
-   * @param {Sheet} sheet - The sheet to format
-   */
-  enhanceSpreadsheetFormatting: function(sheet) {
-    // Get the number of rows and columns in the sheet
-    const lastRow = sheet.getLastRow();
-    const lastColumn = sheet.getLastColumn();
-    
-    if (lastRow <= 1) {
-      // No data yet, just format the header
-      this.formatHeader(sheet);
-      return;
-    }
-    
-    // 1. Format the header row
-    this.formatHeader(sheet);
-    
-    // 2. Apply alternating row colors to data rows
-    this.applyAlternatingRowColors(sheet, 2, lastRow);
-    
-    // 3. Format the Raw Body column
-    this.formatRawBodyColumn(sheet, lastColumn);
-    
-    // 4. Apply status formatting on top of alternating colors
-    this.applyStatusFormattingEnhanced(sheet, lastRow);
-    
-    // 5. Format dates and add borders
-    this.formatDatesAndBorders(sheet, lastRow, lastColumn);
-    
-    // 6. Auto-resize columns for better readability
-    this.autoResizeColumns(sheet, lastColumn);
-  },
-  
-  /**
-   * Formats the header row with improved styling
-   * @param {Sheet} sheet - The sheet to format
-   */
-  formatHeader: function(sheet) {
-    const headerRange = sheet.getRange(1, 1, 1, sheet.getLastColumn());
-    
-    // Apply gradient background to header
-    headerRange.setBackground('#2c3e50'); // Dark blue header background
-    headerRange.setFontColor('#ffffff'); // White text
-    headerRange.setFontWeight('bold');
-    headerRange.setVerticalAlignment('middle');
-    headerRange.setHorizontalAlignment('center');
-    
-    // Add bottom border to header
-    headerRange.setBorder(null, null, true, null, null, null, '#ffffff', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-    
-    // Increase row height for header
-    sheet.setRowHeight(1, 30);
-  },
-  
-  /**
-   * Applies alternating row colors to the specified range
-   * @param {Sheet} sheet - The sheet to format
-   * @param {number} startRow - The first row to format
-   * @param {number} endRow - The last row to format
-   */
-  applyAlternatingRowColors: function(sheet, startRow, endRow) {
-    for (let i = startRow; i <= endRow; i++) {
-      const rowRange = sheet.getRange(i, 1, 1, sheet.getLastColumn());
-      
-      // Apply alternating colors
-      if (i % 2 === 0) {
-        rowRange.setBackground('#f5f7fa'); // Light blue-gray
-      } else {
-        rowRange.setBackground('#ffffff'); // White
-      }
-      
-      // Set text formatting
-      rowRange.setFontFamily('Arial');
-      rowRange.setFontSize(10);
-      rowRange.setVerticalAlignment('middle');
-    }
-  },
-  
-  /**
-   * Formats or hides the Raw Body column
-   * @param {Sheet} sheet - The sheet to format
-   * @param {number} lastColumn - The last column in the sheet
-   */
-  formatRawBodyColumn: function(sheet, lastColumn) {
-    // Find the Raw Body column
-    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    const rawBodyIndex = headers.indexOf('Raw Body');
-    
-    if (rawBodyIndex !== -1) {
-      const rawBodyColumn = rawBodyIndex + 1; // Convert to 1-based index
-      
-      // Clip text and add tooltip
-      const dataRange = sheet.getRange(2, rawBodyColumn, sheet.getLastRow() - 1, 1);
-      
-      // Apply text wrapping and set a fixed column width
-      dataRange.setWrap(true);
-      sheet.setColumnWidth(rawBodyColumn, 200);
-    }
-  },
-  
-  /**
-   * Enhanced version of status formatting with improved color scheme and text colors
-   * @param {Sheet} sheet - The sheet to format
-   * @param {number} lastRow - The last row in the sheet
-   */
-  applyStatusFormattingEnhanced: function(sheet, lastRow) {
-    // Find the Status column
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const statusIndex = headers.indexOf('Status');
-    const dateUpdatedIndex = headers.indexOf('Date Updated');
-    
-    if (statusIndex === -1) return;
-    
-    const statusColumn = statusIndex + 1; // Convert to 1-based index
-    const dateUpdatedColumn = dateUpdatedIndex !== -1 ? dateUpdatedIndex + 1 : statusColumn - 1;
-    
-    const statusRange = sheet.getRange(2, statusColumn, lastRow - 1, 1);
-    const statusValues = statusRange.getValues();
-    
-    const dateUpdatedRange = sheet.getRange(2, dateUpdatedColumn, lastRow - 1, 1);
-    const dateUpdatedValues = dateUpdatedRange.getValues();
-    
-    // Calculate cutoff for recent updates (7 days ago)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    // Apply formatting to each status cell
-    for (let i = 0; i < statusValues.length; i++) {
-      const status = statusValues[i][0];
-      const updatedDate = dateUpdatedValues[i][0];
-      const cell = sheet.getRange(i + 2, statusColumn);
-      
-      // Check if this is a recent update
-      let isRecentUpdate = false;
-      if (updatedDate instanceof Date && updatedDate > sevenDaysAgo) {
-        isRecentUpdate = true;
-      }
-      
-      // Center the status text
-      cell.setHorizontalAlignment('center');
-      cell.setVerticalAlignment('middle');
-      
-      // Define enhanced status formatting
-      let bgColor, textColor, fontWeight;
-      
-      switch(status) {
-        case "Applied":
-          bgColor = isRecentUpdate ? "#bbdefb" : "#e3f2fd"; // Blue
-          textColor = "#0d47a1"; // Dark blue
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        case "Assessment":
-          bgColor = isRecentUpdate ? "#fff59d" : "#fff9c4"; // Yellow
-          textColor = "#f57f17"; // Dark orange
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        case "Interview Request":
-          bgColor = isRecentUpdate ? "#a5d6a7" : "#c8e6c9"; // Green
-          textColor = "#1b5e20"; // Dark green
-          fontWeight = "bold";
-          break;
-        case "Offer Received":
-          bgColor = isRecentUpdate ? "#81c784" : "#a5d6a7"; // Green
-          textColor = "#1b5e20"; // Dark green
-          fontWeight = "bold";
-          break;
-        case "Rejected":
-          bgColor = isRecentUpdate ? "#ef9a9a" : "#ffcdd2"; // Red
-          textColor = "#b71c1c"; // Dark red
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        case "Status Update":
-          bgColor = isRecentUpdate ? "#e0e0e0" : "#f5f5f5"; // Gray
-          textColor = "#424242"; // Dark gray
-          fontWeight = isRecentUpdate ? "bold" : "normal";
-          break;
-        default:
-          bgColor = "#f5f5f5"; // Light gray
-          textColor = "#424242"; // Dark gray
-          fontWeight = "normal";
-      }
-      
-      // Apply the formatting
-      cell.setBackground(bgColor);
-      cell.setFontColor(textColor);
-      cell.setFontWeight(fontWeight);
-      
-      // Add a subtle border around status cells
-      cell.setBorder(true, true, true, true, null, null, '#bdbdbd', SpreadsheetApp.BorderStyle.SOLID);
-    }
-  },
-  
-  /**
-   * Formats dates and adds borders to the table
-   * @param {Sheet} sheet - The sheet to format
-   * @param {number} lastRow - The last row in the sheet
-   * @param {number} lastColumn - The last column in the sheet
-   */
-  formatDatesAndBorders: function(sheet, lastRow, lastColumn) {
-    // Find date columns
-    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    const dateSubmittedIndex = headers.indexOf('Date Submitted');
-    const dateUpdatedIndex = headers.indexOf('Date Updated');
-    
-    // Format date columns
-    if (dateSubmittedIndex !== -1) {
-      const dateColumn = dateSubmittedIndex + 1; // Convert to 1-based index
-      const dateRange = sheet.getRange(2, dateColumn, lastRow - 1, 1);
-      dateRange.setHorizontalAlignment('center');
-    }
-    
-    if (dateUpdatedIndex !== -1) {
-      const dateColumn = dateUpdatedIndex + 1; // Convert to 1-based index
-      const dateRange = sheet.getRange(2, dateColumn, lastRow - 1, 1);
-      dateRange.setHorizontalAlignment('center');
-    }
-    
-    // Add a border around the entire table
-    const tableRange = sheet.getRange(1, 1, lastRow, lastColumn);
-    tableRange.setBorder(
-      true, true, true, true, // top, left, bottom, right
-      null, null, // vertical, horizontal internal borders
-      '#9e9e9e', SpreadsheetApp.BorderStyle.SOLID // border color and style
-    );
-  },
-  
-  /**
-   * Auto-resizes columns for better readability
-   * @param {Sheet} sheet - The sheet to format
-   * @param {number} lastColumn - The last column in the sheet
-   */
-  autoResizeColumns: function(sheet, lastColumn) {
-    // Auto-resize all columns except Raw Body (which we've already handled)
-    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
-    const rawBodyIndex = headers.indexOf('Raw Body');
-    
-    for (let i = 1; i <= lastColumn; i++) {
-      if (i !== rawBodyIndex + 1) { // Skip Raw Body column
-        sheet.autoResizeColumn(i);
-      }
-    }
-    
-    // Set minimum widths for specific columns
-    const jobTitleIndex = headers.indexOf('Job Title');
-    const companyIndex = headers.indexOf('Company');
-    
-    if (jobTitleIndex !== -1) {
-      const currentWidth = sheet.getColumnWidth(jobTitleIndex + 1);
-      const minWidth = 200;
-      if (currentWidth < minWidth) {
-        sheet.setColumnWidth(jobTitleIndex + 1, minWidth);
-      }
-    }
-    
-    if (companyIndex !== -1) {
-      const currentWidth = sheet.getColumnWidth(companyIndex + 1);
-      const minWidth = 150;
-      if (currentWidth < minWidth) {
-        sheet.setColumnWidth(companyIndex + 1, minWidth);
-      }
-    }
-  },
-  
-  /**
-   * Creates a dashboard header with professional styling
-   * @param {Sheet} sheet - Summary sheet object
-   */
-  createDashboardHeader: function(sheet) {
-    // Create a bold, attractive header for the dashboard
-    sheet.getRange("A1:D1").merge();
-    const headerRange = sheet.getRange("A1:D1");
-    headerRange.setValue("Job Application Dashboard");
-    headerRange.setFontWeight("bold");
-    headerRange.setFontSize(16);
-    headerRange.setBackground("#3f51b5"); // Indigo
-    headerRange.setFontColor("#ffffff"); // White
-    headerRange.setVerticalAlignment("middle");
-    headerRange.setHorizontalAlignment("center");
-    
-    // Set row height for header
-    sheet.setRowHeight(1, 40);
-  },
-  
-  /**
-   * Creates a status summary table with improved styling
-   * @param {Sheet} sheet - Summary sheet object
-   * @param {number} startRow - Starting row for the table
-   * @param {Object} counts - Status counts object
-   */
-  createStatusSummaryTable: function(sheet, startRow, counts) {
-    // Create table header
-    const headerRange = sheet.getRange(startRow, 1, 1, 3);
-    headerRange.setValues([["Status", "Count", "Percentage"]]);
-    headerRange.setFontWeight("bold");
-    headerRange.setBackground("#e8eaf6"); // Light indigo
-    headerRange.setFontColor("#3f51b5"); // Indigo
-    headerRange.setVerticalAlignment("middle");
-    headerRange.setHorizontalAlignment("center");
-    
-    // Apply borders to header
-    headerRange.setBorder(
-      true, true, true, true, // top, left, bottom, right
-      null, null, // vertical, horizontal internal borders
-      "#9e9e9e", SpreadsheetApp.BorderStyle.SOLID // color and style
-    );
-    
-    // Add status data rows
-    let row = startRow + 1;
-    const statusColors = {
-      "Applied": {bg: "#e3f2fd", text: "#0d47a1"},
-      "Assessment": {bg: "#fff9c4", text: "#f57f17"},
-      "Interview Request": {bg: "#c8e6c9", text: "#1b5e20"},
-      "Offer Received": {bg: "#a5d6a7", text: "#1b5e20"},
-      "Rejected": {bg: "#ffcdd2", text: "#b71c1c"},
-      "Status Update": {bg: "#f5f5f5", text: "#424242"}
-    };
-    
-    for (const status in counts) {
-      if (status === "Total") continue; // Add total at the end
-      
-      const count = counts[status];
-      const percentage = counts["Total"] > 0 ? (count / counts["Total"] * 100).toFixed(1) + "%" : "0%";
-      
-      sheet.getRange(row, 1).setValue(status);
-      sheet.getRange(row, 2).setValue(count);
-      sheet.getRange(row, 3).setValue(percentage);
-      
-      // Set cell alignment
-      sheet.getRange(row, 1).setHorizontalAlignment("left");
-      sheet.getRange(row, 2).setHorizontalAlignment("center");
-      sheet.getRange(row, 3).setHorizontalAlignment("center");
-      
-      // Apply status-specific colors
-      if (statusColors[status]) {
-        sheet.getRange(row, 1).setBackground(statusColors[status].bg);
-        sheet.getRange(row, 1).setFontColor(statusColors[status].text);
-      }
-      
-      // Add subtle borders
-      sheet.getRange(row, 1, 1, 3).setBorder(
-        true, true, true, true, // top, left, bottom, right
-        null, null, // vertical, horizontal
-        "#e0e0e0", SpreadsheetApp.BorderStyle.SOLID // color and style
-      );
-      
-      row++;
-    }
-    
-    // Add total row with distinct styling
-    sheet.getRange(row, 1).setValue("Total");
-    sheet.getRange(row, 2).setValue(counts["Total"]);
-    sheet.getRange(row, 3).setValue("100%");
-    
-    // Format total row
-    sheet.getRange(row, 1, 1, 3).setBackground("#e0e0e0");
-    sheet.getRange(row, 1, 1, 3).setFontWeight("bold");
-    sheet.getRange(row, 2).setHorizontalAlignment("center");
-    sheet.getRange(row, 3).setHorizontalAlignment("center");
-    
-    // Add more prominent border to total row
-    sheet.getRange(row, 1, 1, 3).setBorder(
-      true, true, true, true, // top, left, bottom, right
-      null, null, // vertical, horizontal
-      "#9e9e9e", SpreadsheetApp.BorderStyle.SOLID_MEDIUM // color and style
-    );
-    
-    // Auto-resize columns
-    sheet.autoResizeColumns(1, 3);
-  },
-  
-  /**
-   * Creates a recent activity section to highlight recent applications and updates
-   * @param {Sheet} sheet - Summary sheet object
-   * @param {Sheet} mainSheet - Main sheet with application data
-   * @param {number} startRow - Starting row for the section
-   */
-  createRecentActivitySection: function(sheet, mainSheet, startRow) {
-    // Create section header
-    const headerRange = sheet.getRange(startRow, 1, 1, 4);
-    headerRange.setValues([["Recent Application Activity"]]);
-    headerRange.setFontWeight("bold");
-    headerRange.setFontSize(14);
-    headerRange.setBackground("#3f51b5"); // Indigo
-    headerRange.setFontColor("#ffffff"); // White
-    headerRange.merge();
-    
-    // Get data from main sheet
-    const lastRow = mainSheet.getLastRow();
-    if (lastRow <= 1) return;
-    
-    const headers = mainSheet.getRange(1, 1, 1, 6).getValues()[0];
-    const jobTitleIndex = headers.indexOf('Job Title');
-    const companyIndex = headers.indexOf('Company');
-    const dateUpdatedIndex = headers.indexOf('Date Updated');
-    const statusIndex = headers.indexOf('Status');
-    
-    if (jobTitleIndex === -1 || companyIndex === -1 || 
-        dateUpdatedIndex === -1 || statusIndex === -1) {
-      return;
-    }
-    
-    // Get all applications
-    const dataRange = mainSheet.getRange(2, 1, lastRow - 1, 6).getValues();
-    
-    // Filter applications with valid dates
-    const applicationsWithDates = dataRange.filter(row => 
-      row[dateUpdatedIndex] instanceof Date
-    );
-    
-    if (applicationsWithDates.length === 0) return;
-    
-    // Sort applications by update date (newest first)
-    applicationsWithDates.sort((a, b) => b[dateUpdatedIndex] - a[dateUpdatedIndex]);
-    
-    // Take the 5 most recently updated applications
-    const recentApplications = applicationsWithDates.slice(0, 5);
-    
-    // Create headers for recent activity table
-    const tableHeaders = ["Job Title", "Company", "Last Updated", "Status"];
-    sheet.getRange(startRow + 1, 1, 1, 4).setValues([tableHeaders]);
-    sheet.getRange(startRow + 1, 1, 1, 4).setFontWeight("bold");
-    sheet.getRange(startRow + 1, 1, 1, 4).setBackground("#e8eaf6"); // Light indigo
-    sheet.getRange(startRow + 1, 1, 1, 4).setFontColor("#3f51b5"); // Indigo
-    
-    // Prepare data for the table
-    const today = new Date();
-    const recentActivityData = recentApplications.map(app => {
-      const updatedDate = app[dateUpdatedIndex];
-      const updatedFormatted = Utilities.formatDate(updatedDate, Session.getScriptTimeZone(), "MM/dd/yyyy");
-      
-      return [
-        app[jobTitleIndex],
-        app[companyIndex],
-        updatedFormatted,
-        app[statusIndex]
-      ];
-    });
-    
-    // Add data to the table
-    sheet.getRange(startRow + 2, 1, recentActivityData.length, 4).setValues(recentActivityData);
-    
-    // Style the table
-    const tableRange = sheet.getRange(startRow + 1, 1, recentActivityData.length + 1, 4);
-    tableRange.setBorder(
-      true, true, true, true, // top, left, bottom, right
-      true, true, // vertical, horizontal
-      "#e0e0e0", SpreadsheetApp.BorderStyle.SOLID // color and style
-    );
-    
-    // Apply alternating row colors
-    for (let i = 0; i < recentActivityData.length; i++) {
-      const rowRange = sheet.getRange(startRow + 2 + i, 1, 1, 4);
-      if (i % 2 === 0) {
-        rowRange.setBackground("#f5f7fa"); // Light blue-gray
-      } else {
-        rowRange.setBackground("#ffffff"); // White
-      }
-    }
-    
-    // Format status column
-    for (let i = 0; i < recentActivityData.length; i++) {
-      const status = recentActivityData[i][3];
-      const cell = sheet.getRange(startRow + 2 + i, 4);
-      
-      // Apply same color coding as main sheet
-      switch(status) {
-        case "Applied":
-          cell.setBackground("#e3f2fd");
-          cell.setFontColor("#0d47a1");
-          break;
-        case "Assessment":
-          cell.setBackground("#fff9c4");
-          cell.setFontColor("#f57f17");
-          break;
-        case "Interview Request":
-          cell.setBackground("#c8e6c9");
-          cell.setFontColor("#1b5e20");
-          break;
-        case "Offer Received":
-          cell.setBackground("#a5d6a7");
-          cell.setFontColor("#1b5e20");
-          break;
-        case "Rejected":
-          cell.setBackground("#ffcdd2");
-          cell.setFontColor("#b71c1c");
-          break;
-        case "Status Update":
-          cell.setBackground("#f5f5f5");
-          cell.setFontColor("#424242");
-          break;
-      }
-    }
-    
-    // Auto-resize columns
-    sheet.autoResizeColumns(1, 4);
-  },
-  
-  /**
-   * Creates a pie chart showing application status distribution
-   * @param {Sheet} sheet - Summary sheet object
-   * @param {number} startRow - Starting row of data
-   * @param {number} endRow - Ending row of data
-   * @param {Object} counts - Status counts object
-   */
-  createStatusPieChart: function(sheet, startRow, endRow, counts) {
-    // Only create chart if there's data
-    if (counts["Total"] === 0) return;
-    
-    // Create chart with enhanced options
-    const chartDataRange = sheet.getRange(startRow, 1, endRow - startRow, 2);
-    
-    const chart = sheet.newChart()
-      .setChartType(Charts.ChartType.PIE)
-      .addRange(chartDataRange)
-      .setPosition(endRow + 2, 1, 0, 0)
-      .setOption('title', 'Application Status Distribution')
-      .setOption('titleTextStyle', {
-        color: '#3f51b5',
-        fontSize: 14,
-        bold: true
-      })
-      .setOption('pieSliceText', 'percentage')
-      .setOption('legend', {
-        position: 'right',
-        textStyle: {fontSize: 12}
-      })
-      .setOption('pieHole', 0.4) // Create a donut chart
-      .setOption('colors', [
-        '#e3f2fd', // Applied
-        '#f5f5f5', // Status Update
-        '#fff9c4', // Assessment
-        '#c8e6c9', // Interview Request
-        '#a5d6a7', // Offer Received
-        '#ffcdd2'  // Rejected
-      ])
-      .setOption('width', 600)
-      .setOption('height', 400)
-      .setOption('chartArea', {
-        left: '10%',
-        top: '10%',
-        width: '70%',
-        height: '80%'
-      })
-      .build();
-    
-    sheet.insertChart(chart);
-  }
+const SCHEMA = {
+  APPS: ['Application ID', 'Company', 'Job Title', 'Normalized Company', 'Normalized Job Title',
+    'Application Date', 'Current Status', 'Auto Status', 'Status Source', 'Job URL', 'Location', 'Work Arrangement',
+    'Job Source', 'Recruiter Name', 'Recruiter Email', 'Last Activity Date', 'Last Relevant Gmail Thread URL',
+    'Interview Date', 'Interview Details', 'Assessment Deadline', 'Assessment Details', 'Next Action', 'Follow-up Date',
+    'Resume Version', 'Manual Status Override', 'Review State', 'Confidence', 'Notes', 'Created At', 'Updated At'],
+  EVENTS: ['Event ID', 'Gmail Message ID', 'Gmail Thread ID', 'Gmail Thread URL', 'Email Timestamp', 'Direction',
+    'Sender', 'Subject', 'Event Type', 'Event Qualifier', 'Application ID', 'Extracted Company', 'Extracted Job Title',
+    'Event Dates', 'Evidence', 'Classification Reason', 'Confidence', 'Model', 'Prompt Version', 'Content Hash',
+    'Classification JSON', 'Processing State', 'Processed At', 'Corrected Event Type', 'Corrected Application ID'],
+  REVIEW: ['Review ID', 'Kind', 'Gmail Message ID', 'Gmail Thread ID', 'Gmail Thread URL', 'Date', 'Sender', 'Subject',
+    'Proposed Company', 'Proposed Job Title', 'Proposed Event Type', 'Proposed Dates', 'Proposed Application ID',
+    'Evidence', 'Uncertainty', 'Confidence', 'Review Reason', 'Review Status', 'Corrected Company', 'Corrected Job Title',
+    'Corrected Event Type', 'Corrected Application ID', 'Corrected Date', 'Reviewer Notes', 'Reviewed At'],
+  QUEUE: ['Task ID', 'Gmail Message ID', 'Gmail Thread ID', 'Email Date', 'Source', 'Stage', 'State', 'Attempts', 'Last Attempt At',
+    'Next Attempt At', 'Error Category', 'Error Summary', 'Needs Manual', 'Discovered At', 'Completed At', 'Outcome', 'Force'],
+  FEEDBACK: ['Feedback ID', 'Created At', 'Gmail Message ID', 'Correction Type', 'Original Prediction', 'Corrected Value',
+    'Excerpt', 'Model', 'Prompt Version', 'Review Outcome', 'Use As Example'],
+  LOG: ['Run ID', 'Mode', 'Started At', 'Finished At', 'Result', 'Discovered', 'Triaged', 'Classified', 'Written',
+    'Skipped', 'Retried', 'Failed', 'Dead', 'Sent to Review', 'Model Calls', 'Input Tokens', 'Output Tokens',
+    'Est. Cost USD', 'Avg Latency ms', 'Queue Pending', 'Oldest Pending', 'Notes']
 };
 
+// Columns the user may edit (green headers). Sync only fills these when blank,
+// except Interview Date / Assessment Deadline from a newer confirmed email (see README).
+const USER_COLUMNS = {
+  APPS: ['Company', 'Job Title', 'Application Date', 'Job URL', 'Location', 'Work Arrangement', 'Recruiter Name',
+    'Recruiter Email', 'Interview Date', 'Assessment Deadline', 'Next Action', 'Follow-up Date', 'Resume Version',
+    'Manual Status Override', 'Notes'],
+  EVENTS: ['Corrected Event Type', 'Corrected Application ID'],
+  REVIEW: ['Review Status', 'Corrected Company', 'Corrected Job Title', 'Corrected Event Type', 'Corrected Application ID',
+    'Corrected Date', 'Reviewer Notes'],
+  QUEUE: [],
+  FEEDBACK: ['Use As Example'],
+  LOG: []
+};
+
+const REVIEW_STATUSES = ['Pending', 'Approved', 'Ignored', 'Done'];
+const LEGACY_STATUS_EVENT = { 'Applied': 'APPLICATION_CONFIRMATION', 'Status Update': 'APPLICATION_CONFIRMATION',
+  'Assessment': 'ASSESSMENT_INVITATION', 'Interview Request': 'INTERVIEW_INVITATION', 'Offer Received': 'OFFER_RECEIVED',
+  'Rejected': 'REJECTION_RECEIVED' };
+
+/** Makes untrusted text safe to store: no formula execution, bounded length. */
+function cell_(v) {
+  if (v === null || v === undefined) return '';
+  if (v instanceof Date || typeof v === 'number' || typeof v === 'boolean') return v;
+  let s = String(v).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').slice(0, 5000);
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return s;
+}
+
+function same_(a, b) {
+  if (a instanceof Date || b instanceof Date) {
+    const t = v => v instanceof Date ? v.getTime() : (v === '' || v === null || v === undefined ? '' : new Date(v).getTime());
+    return t(a) === t(b);
+  }
+  return String(a === null || a === undefined ? '' : a) === String(b === null || b === undefined ? '' : b);
+}
+
+function threadUrl_(threadId) {
+  return threadId && !/^legacy/.test(threadId) ? 'https://mail.google.com/mail/#all/' + threadId : '';
+}
+
+/** Reads a whole tab once. Rows whose cells are all blank are skipped. */
+function loadTable_(ss, tabName, headers) {
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) throw new Error('Missing tab "' + tabName + '". Run Job Tracker > Setup / migrate workbook.');
+  const lastRow = sheet.getLastRow(), lastCol = sheet.getLastColumn();
+  const values = lastRow && lastCol ? withRetry_(() => sheet.getRange(1, 1, lastRow, lastCol).getValues(), 'read ' + tabName) : [[]];
+  const col = {};
+  values[0].forEach((h, i) => { if (h !== '' && !(h in col)) col[String(h)] = i; });
+  const missing = headers.filter(h => !(h in col));
+  if (missing.length) throw new Error('Tab "' + tabName + '" is missing columns: ' + missing.join(', ') + '. Run Job Tracker > Setup / migrate workbook.');
+  const rows = [];
+  for (let r = 1; r < values.length; r++) {
+    if (values[r].every(v => v === '' || v === null)) continue;
+    const data = {};
+    headers.forEach(h => { data[h] = values[r][col[h]]; });
+    rows.push({ row: r + 1, data: data, orig: Object.assign({}, data) });
+  }
+  return { sheet: sheet, name: tabName, headers: headers, col: col, rows: rows, added: [] };
+}
+
+/** Keeps one blank row at the bottom and grows the sheet inside any existing filter range. */
+function ensureRows_(sheet, lastNeededRow) {
+  const max = sheet.getMaxRows();
+  if (lastNeededRow >= max) sheet.insertRowsBefore(max, lastNeededRow - max + 500);
+}
+
 /**
- * Hook for applying formatting after scanning emails
- * This function should be called at the end of the scanEmails function
- * to ensure the spreadsheet is always formatted correctly
+ * Writes changed cells of existing rows, then appends new rows in one call.
+ * Rows are re-located by key before writing, in case the user sorted the tab mid-run.
  */
-function applyFormattingAfterUpdate() {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = spreadsheet.getActiveSheet();
-  
-  // Apply enhanced formatting
-  SpreadsheetUtils.enhanceSpreadsheetFormatting(sheet);
+function flushTable_(t, keyHeader) {
+  const changed = t.rows.filter(r => t.headers.some(h => !same_(r.data[h], r.orig[h])));
+  if (changed.length) {
+    const keyCol = t.col[keyHeader] + 1;
+    const n = t.sheet.getLastRow() - 1;
+    const keys = n > 0 ? t.sheet.getRange(2, keyCol, n, 1).getValues().map(r => String(r[0])) : [];
+    for (const r of changed) {
+      const key = String(r.orig[keyHeader]);
+      let rowNum = r.row;
+      if (keys[rowNum - 2] !== key) {
+        const i = key ? keys.indexOf(key) : -1;
+        if (i === -1) { log_('WARN', t.name + ': row "' + (key || r.data[keyHeader]) + '" moved during the run; skipped, retried next run'); continue; }
+        rowNum = i + 2;
+      }
+      const cols = t.headers.filter(h => !same_(r.data[h], r.orig[h])).map(h => t.col[h]).sort((a, b) => a - b);
+      // Contiguous runs of changed columns only, so user edits elsewhere in the row are untouched.
+      for (let i = 0; i < cols.length;) {
+        let j = i;
+        while (j + 1 < cols.length && cols[j + 1] === cols[j] + 1) j++;
+        const vals = [];
+        for (let c = cols[i]; c <= cols[j]; c++) vals.push(cell_(r.data[t.headers.find(x => t.col[x] === c)]));
+        withRetry_(() => t.sheet.getRange(rowNum, cols[i] + 1, 1, vals.length).setValues([vals]), 'write ' + t.name);
+        i = j + 1;
+      }
+      r.row = rowNum;
+      r.orig = Object.assign({}, r.data);
+    }
+  }
+  if (t.added.length) {
+    const width = t.sheet.getLastColumn();
+    const start = t.sheet.getLastRow() + 1;
+    const matrix = t.added.map(d => {
+      const row = new Array(width).fill('');
+      t.headers.forEach(h => { row[t.col[h]] = cell_(d[h]); });
+      return row;
+    });
+    ensureRows_(t.sheet, start + matrix.length - 1);
+    withRetry_(() => t.sheet.getRange(start, 1, matrix.length, width).setValues(matrix), 'append ' + t.name);
+    t.added.forEach((d, i) => t.rows.push({ row: start + i, data: d, orig: Object.assign({}, d) }));
+    t.added = [];
+  }
+}
+
+function addRow_(t, data) {
+  const d = {};
+  t.headers.forEach(h => { d[h] = data[h] === undefined ? '' : data[h]; });
+  t.added.push(d);
+  return d;
+}
+
+function newId_(prefix) {
+  return prefix + Utilities.getUuid().replace(/-/g, '').slice(0, 12).toUpperCase();
+}
+
+// ------------------------------------------------------------------
+// Setup and migration
+// ------------------------------------------------------------------
+
+const TAB_SPECS = () => [
+  [CONFIG.TABS.APPS, SCHEMA.APPS, USER_COLUMNS.APPS],
+  [CONFIG.TABS.EVENTS, SCHEMA.EVENTS, USER_COLUMNS.EVENTS],
+  [CONFIG.TABS.REVIEW, SCHEMA.REVIEW, USER_COLUMNS.REVIEW],
+  [CONFIG.TABS.QUEUE, SCHEMA.QUEUE, USER_COLUMNS.QUEUE],
+  [CONFIG.TABS.FEEDBACK, SCHEMA.FEEDBACK, USER_COLUMNS.FEEDBACK],
+  [CONFIG.TABS.LOG, SCHEMA.LOG, USER_COLUMNS.LOG]
+];
+
+/**
+ * Safe to run any number of times. Never clears or deletes a populated tab:
+ *  - creates missing tabs,
+ *  - appends missing columns (after copying the tab to a backup tab),
+ *  - renames a v1 "Applications" tab (kept intact) and imports its rows,
+ *  - refuses to touch a tab whose header row it does not recognise.
+ * Returns human-readable report lines.
+ */
+function setupWorkbook_(ss) {
+  const report = [];
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HHmm');
+  let legacy = null;
+
+  const apps = ss.getSheetByName(CONFIG.TABS.APPS);
+  if (apps && apps.getLastRow() > 0) {
+    const head = apps.getRange(1, 1, 1, Math.max(1, apps.getLastColumn())).getValues()[0].map(String);
+    if (head.indexOf('Application ID') === -1 && head.indexOf('Job Title') !== -1 && head.indexOf('Company') !== -1) {
+      legacy = apps.setName('Legacy Applications ' + stamp);
+      report.push('Found a v1 "Applications" tab: renamed it to "' + legacy.getName() + '" (contents unchanged).');
+    }
+  }
+  report.push(ss.getSheetByName(CONFIG.TABS.EVENTS) || legacy ? 'Mode: migration of an existing workbook.' : 'Mode: fresh setup.');
+
+  for (const [name, headers, editable] of TAB_SPECS()) {
+    formatDataTab_(ensureTab_(ss, name, headers, stamp, report), headers, editable);
+  }
+  if (legacy) report.push(importLegacy_(ss, legacy));
+
+  buildDashboard_(ss);
+  report.push('Dashboard tab built.');
+
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (['scanEmails', 'continueBackfill'].indexOf(t.getHandlerFunction()) !== -1) {
+      ScriptApp.deleteTrigger(t);
+      report.push('Removed obsolete trigger "' + t.getHandlerFunction() + '".');
+    }
+  });
+  return report;
+}
+
+function ensureTab_(ss, name, headers, stamp, report) {
+  let sheet = ss.getSheetByName(name);
+  const widen = (s, n) => { if (s.getMaxColumns() < n) s.insertColumnsAfter(s.getMaxColumns(), n - s.getMaxColumns()); };
+  if (!sheet || sheet.getLastRow() === 0 || sheet.getLastColumn() === 0) {
+    if (!sheet) sheet = ss.insertSheet(name);
+    widen(sheet, headers.length);
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    report.push('Created tab "' + name + '".');
+    return sheet;
+  }
+  const lastCol = sheet.getLastColumn();
+  const head = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(String);
+  if (head.indexOf(headers[0]) === -1) {
+    throw new Error('Tab "' + name + '" exists but its first row is not a tracker header row. Rename that tab (nothing was changed) and run setup again.');
+  }
+  const missing = headers.filter(h => head.indexOf(h) === -1);
+  if (missing.length) {
+    if (sheet.getLastRow() > 1) {
+      const backup = sheet.copyTo(ss).setName('Backup ' + name + ' ' + stamp);
+      report.push('Backed up "' + name + '" to "' + backup.getName() + '".');
+    }
+    widen(sheet, lastCol + missing.length);
+    sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+    report.push('Added columns to "' + name + '": ' + missing.join(', ') + '.');
+  } else {
+    report.push('Tab "' + name + '" is up to date.');
+  }
+  return sheet;
+}
+
+/**
+ * Imports v1 rows. Exact company+title duplicates are merged. Each imported application gets one
+ * synthetic "migrated" event carrying its v1 status and date, so status derivation keeps that
+ * status until newer evidence arrives, and its v1 thread is monitored for replies.
+ */
+function importLegacy_(ss, legacySheet) {
+  const values = legacySheet.getDataRange().getValues();
+  const head = values[0].map(String);
+  const idx = h => head.indexOf(h);
+  const clean = v => /^(unlisted( position)?|unknown company)$/i.test(String(v).trim()) ? '' : String(v || '').trim();
+  const appsT = loadTable_(ss, CONFIG.TABS.APPS, SCHEMA.APPS);
+  const eventsT = loadTable_(ss, CONFIG.TABS.EVENTS, SCHEMA.EVENTS);
+  const known = new Set(eventsT.rows.map(r => String(r.data['Gmail Message ID'])));
+  const byKey = {};
+  const now = new Date();
+  let imported = 0, merged = 0;
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const company = clean(row[idx('Company')]), title = clean(row[idx('Job Title')]);
+    const submitted = row[idx('Date Submitted')] instanceof Date ? row[idx('Date Submitted')] : '';
+    const updated = row[idx('Date Updated')] instanceof Date ? row[idx('Date Updated')] : (submitted || '');
+    const legacyStatus = String(row[idx('Status')] || '');
+    const threadId = idx('ThreadId') !== -1 ? String(row[idx('ThreadId')] || '') : '';
+    if (!company && !title && !threadId) continue;
+    if (threadId && known.has('legacy:' + threadId)) continue;   // already imported by an earlier setup
+
+    const key = company && title ? Extract.normalizeCompany(company) + '|' + Extract.normalizeTitle(title) : null;
+    let app = key && byKey[key];
+    if (app) {
+      merged++;
+      if (submitted && (!app['Application Date'] || submitted < app['Application Date'])) app['Application Date'] = submitted;
+    } else {
+      app = addRow_(appsT, {
+        'Application ID': newId_('APP-'), 'Company': company, 'Job Title': title,
+        'Normalized Company': Extract.normalizeCompany(company), 'Normalized Job Title': Extract.normalizeTitle(title),
+        'Application Date': submitted, 'Status Source': 'legacy', 'Last Activity Date': updated,
+        'Last Relevant Gmail Thread URL': threadUrl_(threadId), 'Created At': now, 'Updated At': now
+      });
+      if (key) byKey[key] = app;
+      imported++;
+    }
+    const msgId = 'legacy:' + (threadId || app['Application ID'] + ':' + r);
+    known.add(msgId);
+    addRow_(eventsT, {
+      'Event ID': 'EVT-' + msgId, 'Gmail Message ID': msgId, 'Gmail Thread ID': threadId || '',
+      'Gmail Thread URL': threadUrl_(threadId), 'Email Timestamp': updated, 'Direction': 'received',
+      'Event Type': LEGACY_STATUS_EVENT[legacyStatus] || 'OTHER_RELEVANT', 'Event Qualifier': 'actual',
+      'Application ID': app['Application ID'], 'Classification Reason': 'Imported from v1 tracker (v1 status "' + legacyStatus + '")',
+      'Processing State': 'migrated', 'Processed At': now
+    });
+  }
+  // Derive the imported applications' statuses from their synthetic events.
+  const evs = eventsT.added.concat(eventsT.rows.map(x => x.data));
+  appsT.added.forEach(a => {
+    const d = Status.derive(evs.filter(e => e['Application ID'] === a['Application ID']).map(eventForDerive_));
+    a['Auto Status'] = d.status || '';
+    a['Current Status'] = d.status || '';
+  });
+  flushTable_(appsT, 'Application ID');
+  flushTable_(eventsT, 'Gmail Message ID');
+  return 'Imported ' + imported + ' application(s) from the v1 tab' + (merged ? ', merging ' + merged + ' exact duplicate row(s)' : '') + '.';
+}
+
+/** Email Events row -> input for Status.derive. */
+function eventForDerive_(e) {
+  const corrected = String(e['Corrected Event Type'] || '');
+  return { id: e['Event ID'], type: corrected || e['Event Type'], qualifier: e['Event Qualifier'] || 'actual',
+    direction: e['Direction'], at: e['Email Timestamp'] instanceof Date ? e['Email Timestamp'].getTime() : (Number(new Date(e['Email Timestamp'])) || 0),
+    confirmed: e['Processing State'] === 'confirmed' || !!corrected };
+}
+
+/** Idempotent formatting. Conditional-format rules are only added to a tab that has none. */
+function formatDataTab_(sheet, headers, editable) {
+  const head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].map(String);
+  const colOf = h => head.indexOf(h) + 1;
+  const letter = h => columnLetter_(colOf(h));
+  const rows = sheet.getMaxRows() - 1;
+
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, head.length).setFontWeight('bold').setBackground('#e0e0e0').setWrap(true);
+  editable.forEach(h => {
+    if (colOf(h)) sheet.getRange(1, colOf(h)).setBackground('#d9ead3').setNote('Editable: your value is kept (see README).');
+  });
+  if (!sheet.getFilter()) sheet.getRange(1, 1, sheet.getMaxRows(), head.length).createFilter();
+
+  headers.forEach(h => {
+    const c = colOf(h);
+    if (!c) return;
+    const range = sheet.getRange(2, c, rows, 1);
+    if (/^(Application Date|Last Activity Date|Follow-up Date|Date)$/.test(h)) range.setNumberFormat('yyyy-mm-dd');
+    else if (/(At|Timestamp)$|^(Interview Date|Assessment Deadline)$/.test(h)) range.setNumberFormat('yyyy-mm-dd hh:mm');
+    sheet.setColumnWidth(c, /Subject|Reason|Notes|URL|Next Action|Evidence|Details|Dates|Uncertainty|Prediction|Value|Excerpt|JSON/.test(h) ? 240 : /ID$/.test(h) ? 140 : 130);
+  });
+
+  const list = (h, values) => {
+    if (!colOf(h)) return;
+    sheet.getRange(2, colOf(h), rows, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(values, true).setAllowInvalid(false).build());
+  };
+  list('Manual Status Override', STATUSES);
+  list('Review Status', REVIEW_STATUSES);
+  list('Corrected Event Type', EVENT_TYPES);
+  list('Use As Example', ['Yes', 'No']);
+
+  if (sheet.getConditionalFormatRules().length === 0 && colOf('Current Status')) {
+    const all = sheet.getRange(2, 1, rows, head.length);
+    const st = '$' + letter('Current Status') + '2';
+    const open = 'NOT(OR(' + st + '="Rejected",' + st + '="Withdrawn"))';
+    const rule = (formula, color) => SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setBackground(color).setRanges([all]).build();
+    const fu = '$' + letter('Follow-up Date') + '2', iv = '$' + letter('Interview Date') + '2', as = '$' + letter('Assessment Deadline') + '2';
+    const rs = '$' + letter('Review State') + '2';
+    sheet.setConditionalFormatRules([
+      rule('=AND(ISNUMBER(' + fu + '),' + fu + '<TODAY(),' + open + ')', '#f4cccc'),
+      rule('=AND(ISNUMBER(' + as + '),' + as + '>=NOW(),' + as + '<=NOW()+3,' + open + ')', '#fce5cd'),
+      rule('=AND(ISNUMBER(' + iv + '),' + iv + '>=NOW(),' + iv + '<=NOW()+7,' + open + ')', '#cfe2f3'),
+      rule('=AND(ISNUMBER(' + fu + '),' + fu + '>=TODAY(),' + fu + '<=TODAY()+' + CONFIG.FOLLOW_UP_SOON_DAYS + ',' + open + ')', '#fff2cc'),
+      rule('=' + rs + '<>""', '#ead1dc'),
+      rule('=' + st + '="Offer"', '#d9ead3'),
+      rule('=NOT(' + open + ')', '#efefef')
+    ]);
+  }
+}
+
+function columnLetter_(n) {
+  let s = '';
+  for (; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  return s;
 }

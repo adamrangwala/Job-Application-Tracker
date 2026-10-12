@@ -1,0 +1,13 @@
+{
+  "name": "job-application-tracker",
+  "private": true,
+  "description": "Gmail job application tracker for Google Apps Script + Google Sheets with LLM classification",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.js && node tests/eval/run-eval.js",
+    "eval:live": "node tests/eval/run-eval.js --live"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
